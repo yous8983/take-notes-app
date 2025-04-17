@@ -1,0 +1,64 @@
+# script_git_push_jsonconf.py
+
+import os
+import subprocess
+import json
+import requests
+
+CONFIG_FILE = "config.json"
+GITHUB_API = "https://api.github.com"
+
+def load_config():
+    with open(CONFIG_FILE) as f:
+        return json.load(f)
+
+def run_cmd(cmd, cwd=None):
+    print(f"$ {' '.join(cmd)}")
+    result = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    if result.returncode != 0:
+        print("Erreur:", result.stderr)
+        exit(1)
+    return result.stdout.strip()
+
+def create_github_repo(repo_name, token, user):
+    headers = {"Authorization": f"token {token}"}
+    data = {"name": repo_name, "private": False}
+    response = requests.post(f"{GITHUB_API}/user/repos", json=data, headers=headers)
+    if response.status_code not in [201, 422]:
+        print("Erreur création repo:", response.text)
+        exit(1)
+
+def push_folder(folder, branch, token, user):
+    abs_path = os.path.abspath(folder)
+    repo_name = os.path.basename(abs_path)
+
+    run_cmd(["git", "init"], cwd=abs_path)
+    run_cmd(["git", "checkout", "-B", branch], cwd=abs_path)
+    run_cmd(["git", "add", "."], cwd=abs_path)
+    run_cmd(["git", "commit", "-m", "Commit initial"], cwd=abs_path)
+
+    create_github_repo(repo_name, token, user)
+
+    remote_url = f"https://github.com/{user}/{repo_name}.git"
+    run_cmd(["git", "remote", "add", "origin", remote_url], cwd=abs_path)
+    run_cmd(["git", "push", "-u", "origin", branch], cwd=abs_path)
+
+def main():
+    cfg = load_config()
+
+    token = cfg["token"]
+    user = cfg["user"]
+    folder_input = cfg.get("folder", "all")
+    branch = cfg.get("branch", "main")
+
+    if folder_input == "all":
+        folders = [f for f in os.listdir(".") if os.path.isdir(f) and not f.startswith(".")]
+    else:
+        folders = [folder_input]
+
+    for folder in folders:
+        print(f"\n--- Pushing '{folder}' sur branche '{branch}' ---")
+        push_folder(folder, branch, token, user)
+
+if __name__ == "__main__":
+    main()
